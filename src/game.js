@@ -940,8 +940,8 @@ const CUT_KEYS = [
   { t: 9, p: [1.05, 1.55, 0.9], l: [-0.1, 1.0, -1.8] },
   { t: 14, p: [0.95, 1.45, -0.3], l: [0.1, 0.85, -2.0] },
   { t: 17, p: [0.85, 1.3, -1.05], l: [0.18, 1.1, -2.08] },
-  { t: 20.5, p: [0.75, 1.35, -1.3], l: [0.3, 2.3, -2.2] },
-  { t: 24, p: [0.72, 1.35, -1.35], l: [0.32, 2.2, -2.2] },
+  { t: 20.5, p: [0.9, 1.5, -0.95], l: [0.4, 2.3, -2.22] },     // the ventilator, the hook and the top of the rope, centred
+  { t: 24, p: [0.82, 1.5, -1.08], l: [0.42, 2.26, -2.22] },
 ];
 const ease3 = x => x * x * (3 - 2 * x);
 const vA = new THREE.Vector3(), vB = new THREE.Vector3(), lookV = new THREE.Vector3();
@@ -973,7 +973,7 @@ function startCutscene() {
   for (const l of julia.lights) if (l.fill) { l.on = false; l.L.visible = false; }
   hemi.intensity = 0.14; scene.fog.color.set('#07080b'); scene.fog.density = 0.08;
   cut.lightning = new THREE.PointLight('#cfe0ff', 0, 9, 1.2); cut.lightning.position.set(-2.6, 2.0, -1.3);
-  julia.group.add(cut.lightning, moonbeam, moonbeam.target); moonbeam.intensity = 5;
+  julia.group.add(cut.lightning, moonbeam, moonbeam.target, ventGlow); moonbeam.intensity = 5;
   if (helenRig) helenRig.root.visible = false;
   camera.fov = 55; camera.updateProjectionMatrix();
   if (document.pointerLockElement) document.exitPointerLock();
@@ -988,7 +988,7 @@ function endCutscene() {
   c2.on = true; c2.L.visible = true; c1.base = CANDLE;
   for (const l of julia.lights) if (l.fill) { l.on = true; l.L.visible = true; }
   hemi.intensity = s.hemi; scene.fog.color.setHex(s.fog); scene.fog.density = s.fogD;
-  julia.group.remove(cut.lightning, moonbeam, moonbeam.target); moonbeam.intensity = 0;
+  julia.group.remove(cut.lightning, moonbeam, moonbeam.target, ventGlow); moonbeam.intensity = 0; ventGlow.intensity = 0;
   if (helenRig) helenRig.root.visible = true;
   resetSnake(); for (const f of flames) f.visible = true;
   camera.fov = s.fov; camera.updateProjectionMatrix();
@@ -1018,7 +1018,7 @@ function tickCutscene(dt) {
   cutCamera(Math.max(4, Math.min(t, 24)));
   // the snake: a glimpse at the grille, then gone
   if (t > 21.2 && t < 24) {
-    adder.headY = t < 22.3 ? 2.36 - (t - 21.2) * 0.12 : Math.min(2.6, adder.headY + dt * 0.9);
+    adder.headY = t < 23.2 ? 2.36 - (t - 21.2) * 0.12 : Math.min(2.6, adder.headY + dt * 0.9);
     if (adder.headY > 2.5) adder.root.visible = false;
     if (adder.root.visible) poseSnakeOnRope(t, 0.45);   // just its head, out of the grille
   }
@@ -1026,6 +1026,8 @@ function tickCutscene(dt) {
   cut.flash = Math.max(0, cut.flash - dt * 2.6);
   const f = cut.flash, flick = f > 0 ? (Math.sin(t * 60) > -0.3 ? 1 : 0.25) : 0;
   cut.lightning.intensity = 70 * f * flick;
+  // "a gleam of light in the direction of the ventilator": a lantern behind the grille from the whistle until the scream
+  ventGlow.intensity = t > 17.4 && t < 24.4 ? 0.8 * Math.min(1, (t - 17.4) / 0.8) * (0.9 + 0.1 * Math.sin(t * 7)) : 0;
   hemi.intensity = 0.14 + 0.9 * f * flick;
   const c1 = julia.lights[1]; if (c1) c1.base = (t > 9.5 && t < 12.5) ? 0.4 + 0.3 * Math.abs(Math.sin(t * 13)) : (t > 24 ? 0 : 1.2);
   cut.shake = Math.max(0, cut.shake - dt * 1.5);
