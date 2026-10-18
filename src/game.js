@@ -808,17 +808,24 @@ function seatRoylott() {
   if (r.armL) r.armL.quaternion.copy(r.armL.userData.q0).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.4, 0, 0)));
   if (r.head) r.head.quaternion.copy(r.head.userData.q0).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.45, 0, 0)));   // staring at the ceiling
   for (const e of r.eyes) e.scale.copy(e.userData.s0);
-  // the snake, curled round his brow: bend each joint about 62 degrees so the six segments close into a ring
-  const a = adder; roylott.group.attach(a.root);
-  a.root.rotation.set(0, 0, 0); a.root.position.set(0, 0, 0); a.root.visible = true;
-  a.root.scale.setScalar(1.3);   // at true size the ring (32 cm across) disappears inside his 34 cm head
+  // the snake, curled round his brow. Measure his head while it is upright, size the coil to fit snugly, and fix
+  // it to the head so it tilts back with him instead of hanging in the air beside it.
+  const a = adder, head = r.head || r.root, V3 = THREE.Vector3;
+  if (r.head) r.head.quaternion.copy(r.head.userData.q0);
+  a.root.visible = true; a.root.rotation.set(0, 0, 0); a.root.scale.setScalar(1);
+  // bend each joint about 62 degrees so the six segments close into a ring
   a.segs.forEach((sg, i) => { if (sg && i > 0) sg.quaternion.copy(sg.userData.q0).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 1.08, 0))); });
   if (a.tongue) a.tongue.scale.z = 0.4;
-  a.root.rotation.x = -0.45;   // tilted back with his head
-  r.root.updateMatrixWorld(true); a.root.updateMatrixWorld(true);
-  const brow = new THREE.Vector3(0, 0.15, 0.01); r.head.localToWorld(brow);
-  const ring = new THREE.Box3().setFromObject(a.root).getCenter(new THREE.Vector3());
-  a.root.position.add(roylott.group.worldToLocal(brow.clone()).sub(roylott.group.worldToLocal(ring)));
+  head.add(a.root); a.root.position.set(0, 0, 0); r.root.updateMatrixWorld(true);
+  const skin = r.root.getObjectByName('head_skin') || head;
+  const hb = new THREE.Box3().setFromObject(skin), hs = hb.getSize(new V3()), hc = hb.getCenter(new V3());
+  const rs = new THREE.Box3().setFromObject(a.root).getSize(new V3());
+  a.root.scale.setScalar((hs.x * 0.9 + 0.05) / Math.max(rs.x, rs.z));   // outer edge just wider than his temples
+  r.root.updateMatrixWorld(true);
+  const rc = new THREE.Box3().setFromObject(a.root).getCenter(new V3());
+  const brow = new V3(hc.x, hb.min.y + hs.y * 0.68, hc.z);             // forehead height, just above the eyes
+  a.root.position.add(head.worldToLocal(brow.clone()).sub(head.worldToLocal(rc)));
+  if (r.head) r.head.quaternion.copy(r.head.userData.q0).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.45, 0, 0)));   // staring at the ceiling
 }
 function showTheEnd() {
   night.phase = 'end';
