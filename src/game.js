@@ -767,7 +767,7 @@ function showEnding() {
     hemi.intensity = HEMI * 0.7; scene.fog.color.set('#14110e'); scene.fog.density = FOG;
     for (const f of flames) f.visible = true;
     setRoomLights(1);
-    if (parts.safe_door) parts.safe_door.rotation.y = -1.4;
+    anim.safeOpen = -1.4;   // the safe stands open in the final scene
     seatRoylott();
     const local = new THREE.Vector3(0.45, 0, 0.2); roylott.group.localToWorld(local);
     player.room = 1; player.x = local.x; player.z = local.z;
@@ -1425,7 +1425,7 @@ function tick() {
   // the safe door rattles on its hinge but holds
   if (parts.safe_door) {
     anim.safe = Math.max(0, anim.safe - dt * 1.6);
-    parts.safe_door.rotation.y = Math.sin(anim.safe * 40) * anim.safe * 0.025;
+    parts.safe_door.rotation.y = (anim.safeOpen || 0) + Math.sin(anim.safe * 40) * anim.safe * 0.025;   // open (ending) plus any rattle
   }
   for (const [n, dir] of [['chest_drawer_1a', 1], ['dressing_table_drawer', -1]]) {
     const d = parts[n]; if (!d) continue;
