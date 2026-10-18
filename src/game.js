@@ -83,22 +83,32 @@ const occluders = [];   // walls etc.: block the examine ray
 const examinables = []; // {id, roots:[], meshes:[]}
 
 // A room: its own group (local coordinates), shell, colliders, lights
-function makeRoom({ name, minX, maxX, minZ, maxZ, h, wallTex, ceilColor, position, rotY }) {
+function makeRoom({ name, minX, maxX, minZ, maxZ, h, wallTex, ceilColor, position, rotY, vent }) {
   const g = new THREE.Group(); g.position.copy(position); g.rotation.y = rotY; scene.add(g);
   const W = maxX - minX, D = maxZ - minZ, CX = (minX + maxX) / 2, CZ = (minZ + maxZ) / 2;
   const ft = floorTex.clone(); ft.wrapS = ft.wrapT = THREE.RepeatWrapping; ft.repeat.set(W / 1.6, D / 1.6); ft.needsUpdate = true;
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), new THREE.MeshStandardMaterial({ map: ft, roughness: 0.75 }));
   floor.rotation.x = -Math.PI / 2; floor.position.set(CX, 0, CZ); floor.receiveShadow = true; g.add(floor);
-  const wall = (width, x, z, ry) => {
+  // a wall, optionally with a real rectangular opening in it (the ventilator between the two bedrooms)
+  const wallGeo = (width, hole) => {
+    if (!hole) return new THREE.PlaneGeometry(width, h);
+    const sh = new THREE.Shape([new THREE.Vector2(-width / 2, -h / 2), new THREE.Vector2(width / 2, -h / 2), new THREE.Vector2(width / 2, h / 2), new THREE.Vector2(-width / 2, h / 2)]);
+    const hx = hole.x, hy = hole.y - h / 2, hw = hole.w / 2, hh = hole.h / 2;
+    sh.holes.push(new THREE.Path([new THREE.Vector2(hx - hw, hy - hh), new THREE.Vector2(hx - hw, hy + hh), new THREE.Vector2(hx + hw, hy + hh), new THREE.Vector2(hx + hw, hy - hh)]));
+    const geo = new THREE.ShapeGeometry(sh), uv = geo.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) + width / 2) / width, (uv.getY(i) + h / 2) / h);   // same texture layout as a plain wall
+    return geo;
+  };
+  const wall = (width, x, z, ry, hole) => {
     const tex = wallTex.clone(); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(width / 0.7, h / 0.7); tex.needsUpdate = true;
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(width, h), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 }));
+    const m = new THREE.Mesh(wallGeo(width, hole), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 }));
     m.position.set(x, h / 2, z); m.rotation.y = ry; m.receiveShadow = true; g.add(m); occluders.push(m);
     const add = (geo, mat, y, push) => { const b = new THREE.Mesh(geo, mat); b.position.set(x, y, z); b.rotation.y = ry; b.translateZ(push); b.receiveShadow = true; g.add(b); };
     add(new THREE.BoxGeometry(width, 0.85, 0.02), dadoMat, 0.425, 0.011);
     add(new THREE.BoxGeometry(width, 0.05, 0.045), trimMat, 0.86, 0.022);
     add(new THREE.BoxGeometry(width, 0.09, 0.07), new THREE.MeshStandardMaterial({ color: '#b8ae98', roughness: 0.9 }), h - 0.045, 0.035);
   };
-  wall(W, CX, minZ, 0); wall(W, CX, maxZ, Math.PI); wall(D, minX, CZ, Math.PI / 2); wall(D, maxX, CZ, -Math.PI / 2);
+  wall(W, CX, minZ, 0, vent && { x: vent.x - CX, y: vent.y, w: vent.w, h: vent.h }); wall(W, CX, maxZ, Math.PI); wall(D, minX, CZ, Math.PI / 2); wall(D, maxX, CZ, -Math.PI / 2);
   const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), new THREE.MeshStandardMaterial({ color: ceilColor, roughness: 1 }));
   ceil.rotation.x = Math.PI / 2; ceil.position.set(CX, h, CZ); g.add(ceil);
   return { name, group: g, minX, maxX, minZ, maxZ, h, colliders: [], lights: [] };
@@ -139,19 +149,33 @@ function addDoor(room, x, z, ry) {
 }
 
 // ---------- the two rooms ----------
+// The house, from above: Julia's bedroom and Dr. Roylott's sit back to back, sharing one wall, and both open onto
+// the same corridor along their east side (as in the story: "they all open out into the same corridor").
+// The ventilator is a real 32 x 22 cm hole through the shared wall, so you can see from one room into the other.
 // Julia's bedroom sits at the origin (the furniture file was laid out for a 4 m x 4.5 m room).
+const VENT = { x: 0.45, y: 2.4, w: 0.32, h: 0.22 };    // in Julia's room (= world) coordinates
+const WALL = 0.12, ROY_X = -0.2;                         // his room's east wall lines up with hers (x = 2.05)
 const julia = makeRoom({ name: 'Julia Stoner\'s bedroom', minX: -2.05, maxX: 2.05, minZ: -2.252, maxZ: 2.25, h: 2.75,
-  wallTex: damask('#2e3b32', 'rgba(160,170,130,0.12)'), ceilColor: '#4a443c', position: new THREE.Vector3(0, 0, 0), rotY: 0 });
-// Dr. Roylott's room is behind her back wall, turned to face it, and shifted so the two sides of the ventilator meet.
-const WALL = 0.12;
+  wallTex: damask('#2e3b32', 'rgba(160,170,130,0.12)'), ceilColor: '#4a443c', position: new THREE.Vector3(0, 0, 0), rotY: 0, vent: VENT });
+// Dr. Roylott's room is behind her back wall, turned to face it. Turned round, his x runs the other way.
 const roylott = makeRoom({ name: 'Dr. Roylott\'s room', minX: -2.25, maxX: 2.25, minZ: -2.25, maxZ: 2.25, h: 2.75,
-  wallTex: plasterTex, ceilColor: '#3e3a33', position: new THREE.Vector3(0.80, 0, -2.252 - WALL - 2.25), rotY: Math.PI });
+  wallTex: plasterTex, ceilColor: '#3e3a33', position: new THREE.Vector3(ROY_X, 0, -2.252 - WALL - 2.25), rotY: Math.PI,
+  vent: { ...VENT, x: ROY_X - VENT.x } });
+// the shaft through the wall between the two grilles
+{
+  const duct = new THREE.MeshStandardMaterial({ color: '#2a241e', roughness: 1, side: THREE.DoubleSide });
+  const z0 = -2.252, d = WALL, zc = z0 - d / 2;
+  for (const [w, hgt, x, y, ry, rx] of [[d, VENT.h, VENT.x - VENT.w / 2, VENT.y, Math.PI / 2, 0], [d, VENT.h, VENT.x + VENT.w / 2, VENT.y, Math.PI / 2, 0],
+                                         [VENT.w, d, VENT.x, VENT.y - VENT.h / 2, 0, Math.PI / 2], [VENT.w, d, VENT.x, VENT.y + VENT.h / 2, 0, Math.PI / 2]]) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, hgt), duct); m.position.set(x, y, zc); m.rotation.set(rx, ry, 0); scene.add(m);
+  }
+}
 const rooms = [julia, roylott];
 
 const juliaWindow = addWindow(julia, -2.05 + 0.011, -1.3, Math.PI / 2);
-const juliaDoor = addDoor(julia, 1.15, 2.25 - 0.026, Math.PI);
+const juliaDoor = addDoor(julia, 2.05 - 0.026, 1.5, -Math.PI / 2);          // east wall, onto the corridor
 const roylottWindow = addWindow(roylott, 2.25 - 0.011, -0.55, -Math.PI / 2);
-const roylottDoor = addDoor(roylott, 0.45, 2.25 - 0.026, Math.PI);
+const roylottDoor = addDoor(roylott, -2.25 + 0.026, 1.65, Math.PI / 2);     // his west wall faces east once turned: the same corridor
 examinables.push({ id: 'window', roots: [juliaWindow] });
 examinables.push({ id: 'door_out', roots: [juliaDoor] });
 examinables.push({ id: 'door_back', roots: [roylottDoor] });
@@ -306,9 +330,6 @@ Promise.all([parseGLB('glb-bedroom'), parseGLB('glb-candle'), parseGLB('glb-royl
     src.traverse(o => { if (o.isMesh && !o.userData.proxy) o.visible = false; });   // hide the sunken original
     const g = new THREE.Group(); g.position.set(c.x, c.y, room.minZ + 0.003);
     const W = 0.32, H = 0.22;
-    const hole = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ color: '#050403' })); g.add(hole);
-    const soot = new THREE.Mesh(new THREE.PlaneGeometry(W + 0.16, H + 0.2), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.28, depthWrite: false }));
-    soot.position.set(0, 0.03, -0.001); g.add(soot);
     const box = (w, h, d, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), grilleMat); m.position.set(x, y, z); m.castShadow = true; g.add(m); };
     box(W + 0.06, 0.03, 0.035, 0, H / 2 + 0.015, 0.017); box(W + 0.06, 0.03, 0.035, 0, -H / 2 - 0.015, 0.017);
     box(0.03, H, 0.035, -W / 2 - 0.015, 0, 0.017); box(0.03, H, 0.035, W / 2 + 0.015, 0, 0.017);
@@ -317,7 +338,15 @@ Promise.all([parseGLB('glb-bedroom'), parseGLB('glb-candle'), parseGLB('glb-royl
     room.group.add(g);
     return g;
   }
+  // Dr. Roylott's chair and his side of the ventilator stand where the hole now comes through
+  for (const n of ['wooden_chair', 'chair_seat', 'ventilator_back']) { const o = R(n); if (o) o.position.x += (ROY_X - VENT.x) - 0.35; }
   const grilleJ = buildGrille(julia, parts.ventilator), grilleR = buildGrille(roylott, parts.vent_back);
+  // a little light from the far side of each grille, so the opening reads as a way through to the next room
+  // (it lights only the far room's walls; a wall lit from behind stays dark on its own side)
+  for (const [room, other, z] of [[julia, roylott, -2.7], [roylott, julia, -1.9]]) {
+    const L = new THREE.PointLight('#ffb870', 0.9, 1.4, 2); L.position.set(VENT.x, VENT.y - 0.15, z); scene.add(L);
+    room.lights.push({ L, base: 0.9, fill: true });
+  }
   const reg = (id, ...objs) => { const roots = objs.filter(Boolean); if (roots.length) examinables.push({ id, roots }); };
   reg('bell_rope', J('bell_rope'), J('rope_hook'));
   reg('ventilator', J('ventilator'), grilleJ);
@@ -410,16 +439,16 @@ Promise.all([parseGLB('glb-bedroom'), parseGLB('glb-candle'), parseGLB('glb-royl
     ['arm_left', 'sleeve_left', 'top'], ['arm_right', 'sleeve_upper_right', 'top'], ['elbow_right', 'sleeve_forearm_right', 'top'],
     ['leg_left', 'thigh_left', 'top'], ['leg_right', 'thigh_right', 'top']]);
   man.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-  man.position.set(1.15, 0, 2.75); man.rotation.y = Math.PI; man.visible = false;   // faces into the room
+  man.position.set(2.55, 0, 1.5); man.rotation.y = -Math.PI / 2; man.visible = false;   // in the corridor, facing the door
   julia.group.add(man);
   const G = n => man.getObjectByName(n);
   roy = { root: man, head: G('head'), body: G('body'), armR: G('arm_right'), elbowR: G('elbow_right'), armL: G('arm_left'),
     eyes: [G('eye_left'), G('eye_right')].filter(Boolean), state: 'waiting', t: 0, wait: 0, yaw: 0, threat: 0, strike: 0, blink: 3, blinkT: 0, done: false };
   for (const k of ['head', 'body', 'armR', 'elbowR', 'armL']) if (roy[k]) roy[k].userData.q0 = roy[k].quaternion.clone();
   for (const e of roy.eyes) e.userData.s0 = e.scale.clone();
-  roy.collider = { minX: 0.8, maxX: 1.5, minZ: 1.75, maxZ: 2.25 };
+  roy.collider = { minX: 1.45, maxX: 2.05, minZ: 1.15, maxZ: 1.85 };
   // lamplight from the corridor, only while the door stands open
-  roy.lamp = new THREE.PointLight('#ffb870', 0, 6, 1.4); roy.lamp.position.set(1.0, 1.95, 1.25); julia.group.add(roy.lamp);
+  roy.lamp = new THREE.PointLight('#ffb870', 0, 6, 1.4); roy.lamp.position.set(1.3, 1.95, 1.5); julia.group.add(roy.lamp);
   julia.colliders.push({ minX: -1.25, maxX: -0.65, minZ: 0.95, maxZ: 1.55 });
 
   // collision boxes from each model's measured footprint (room-local metres)
@@ -432,7 +461,7 @@ Promise.all([parseGLB('glb-bedroom'), parseGLB('glb-candle'), parseGLB('glb-royl
     { minX: -2.25, maxX: -1.3, minZ: -2.25, maxZ: -0.2 },     // camp bed
     { minX: -2.25, maxX: -1.19, minZ: 0.06, maxZ: 1.04 },     // armchair
     { minX: -1.06, maxX: -0.44, minZ: 0.74, maxZ: 1.36 },     // round table
-    { minX: 0.12, maxX: 0.58, minZ: -2.25, maxZ: -1.69 },     // wooden chair
+    { minX: -0.88, maxX: -0.42, minZ: -2.25, maxZ: -1.69 },   // wooden chair, under the ventilator
     { minX: 1.0, maxX: 1.7, minZ: -2.25, maxZ: -1.57 },       // safe
     { minX: 1.9, maxX: 2.25, minZ: 0.03, maxZ: 1.07 });       // bookshelf
 
@@ -499,7 +528,7 @@ const keyFound = () => KEY.filter(k => found.has(k)).length;
 
 // ---------- player ----------
 const EYE = 1.72, PR = 0.22;
-const player = { x: 1.15, z: 1.55, yaw: 0.35, pitch: -0.12, room: 0 };
+const player = { x: 1.5, z: 1.5, yaw: 0.5, pitch: -0.12, room: 0 };
 const keys = {};
 let playing = false, cardOpen = false, nbOpen = false, moving = false;
 const tmp = new THREE.Vector3();
@@ -521,10 +550,11 @@ function goTo(i) {
   setTimeout(() => {
     player.room = i;
     // stand just inside the room's door, facing in
-    const local = i === 0 ? new THREE.Vector3(1.15, 0, 1.6) : new THREE.Vector3(0.45, 0, 1.6);
+    const local = i === 0 ? new THREE.Vector3(1.5, 0, 1.5) : new THREE.Vector3(-1.75, 0, 1.65);
+    const look = rooms[i].group.localToWorld(i === 0 ? new THREE.Vector3(0, 0, -1.2) : new THREE.Vector3(-0.3, 0, -1.4));
     rooms[i].group.localToWorld(local);
     player.x = local.x; player.z = local.z;
-    player.yaw = rooms[i].group.rotation.y + (i === 0 ? 0.25 : -0.2); player.pitch = -0.1;
+    player.yaw = Math.atan2(-(look.x - local.x), -(look.z - local.z)); player.pitch = -0.1;   // facing into the room
     setRoomLights(i);
     $('fade').classList.remove('on');
     showWhere(rooms[i].name);
@@ -741,7 +771,7 @@ function resetSnake() { adder.headY = 2.42; adder.root.visible = false; adder.mo
 // grille, across to the rope, then spiralling down around the rope to the pillow.
 function buildSnakePath(axis) {
   const V = THREE.Vector3, gx = 0.45, gy = 2.40, gz = -2.24, P = [];
-  P.push(new V(gx, gy, -3.75), new V(gx, gy, -3.0), new V(gx, gy, -2.5), new V(gx, gy, gz),
+  P.push(new V(gx, 1.2, -3.0), new V(gx, 1.85, -2.9), new V(gx, 2.3, -2.65), new V(gx, gy, -2.42), new V(gx, gy, gz),   // up from his chair, through the wall
          new V(gx - 0.01, gy - 0.03, gz + 0.08), new V(gx - 0.09, gy - 0.12, gz + 0.12));
   const r = 0.045, y0 = axis.top.y - 0.2, y1 = axis.bottom.y + 0.06;
   for (let k = 0, y = y0; y >= y1; k++, y -= 0.055) {
@@ -819,9 +849,9 @@ function showEnding() {
     setRoomLights(1);
     anim.safeOpen = -1.4;   // the safe stands open in the final scene
     seatRoylott();
-    const local = new THREE.Vector3(0.45, 0, 0.2); roylott.group.localToWorld(local);
+    const local = new THREE.Vector3(ROY_X - VENT.x + 0.1, 0, 0.2); roylott.group.localToWorld(local);
     player.room = 1; player.x = local.x; player.z = local.z;
-    const target = new THREE.Vector3(0.35, 1.3, -1.95); roylott.group.localToWorld(target);
+    const target = new THREE.Vector3(ROY_X - VENT.x, 1.3, -1.95); roylott.group.localToWorld(target);
     const dx = target.x - player.x, dz = target.z - player.z; player.yaw = Math.atan2(-dx, -dz); player.pitch = Math.atan2(target.y - EYE, Math.hypot(dx, dz));
     $('fade').classList.remove('on');
     setTimeout(() => {
@@ -838,7 +868,7 @@ function seatRoylott() {
   const r = roy;
   r.state = 'seated'; r.root.visible = true;
   roylott.group.attach(r.root);
-  r.root.position.set(0.35, 0, -1.97); r.root.rotation.set(0, 0, 0);
+  r.root.position.set(ROY_X - VENT.x, 0, -1.97); r.root.rotation.set(0, 0, 0);   // in his chair, under the ventilator
   // no hat at three in the morning
   for (const n of ['hat_brim', 'hat_brim_curl', 'hat_crown', 'hat_band']) { const o = r.root.getObjectByName(n); if (o) o.visible = false; }
   // give each leg a knee: hang the shin, gaiter and foot from a pivot at the bottom of the thigh
@@ -1399,7 +1429,7 @@ function tick() {
   // Dr. Roylott: once Helen has told her story (or you've found most of the evidence) he storms in
   if (roy && ready) {
     const door = juliaDoor.userData.hinge, closed = juliaDoor.userData.closedY;
-    const dDoor = Math.hypot(player.x - 1.15, player.z - 2.0);
+    const dDoor = Math.hypot(player.x - 1.75, player.z - 1.5);
     if (roy.state === 'waiting' && playing && player.room === 0 && !cardOpen && !talkOpen && !deduceOpen && !moving
         && (milestones[2].shown || keyFound() >= 5) && dDoor > 1.3) {
       roy.wait += dt;
@@ -1410,10 +1440,10 @@ function tick() {
     if (roy.state === 'opening') {
       door.rotation.y = closed - 1.5 * ease(roy.t / 0.35);   // swings out into the corridor, out of the way
       roy.lamp.intensity = 3.2 * ease(roy.t / 0.35);
-      roy.root.position.z = 2.75 - 0.75 * ease((roy.t - 0.25) / 0.7);
+      roy.root.position.x = 2.55 - 0.8 * ease((roy.t - 0.25) / 0.7);
       if (roy.t > 1.0) { roy.state = 'present'; roy.focus = 1.4; openTalk('roylott'); }
     } else if (roy.state === 'leaving') {
-      roy.root.position.z = 2.0 + 0.75 * ease(roy.t / 0.7);
+      roy.root.position.x = 1.75 + 0.8 * ease(roy.t / 0.7);
       door.rotation.y = closed - 1.5 * (1 - ease((roy.t - 0.6) / 0.25));
       roy.lamp.intensity = 3.2 * (1 - ease((roy.t - 0.6) / 0.25));
       if (roy.t > 0.9) {
