@@ -2,6 +2,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { Flow } from 'three/addons/modifiers/CurveModifier.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const isTouch = matchMedia('(pointer: coarse)').matches;
@@ -269,6 +271,18 @@ Promise.all([parseGLB('glb-bedroom'), parseGLB('glb-candle'), parseGLB('glb-royl
   if (parts.wicker_chair) { parts.wicker_chair.position.set(1.62, 0, 0.5); parts.wicker_chair.rotation.y = -0.7; }
   if (parts.rug) parts.rug.traverse(o => { if (o.isMesh) o.castShadow = false; });
 
+  // the bell-rope hangs exactly to the pillow (it used to be long enough to sink into it)
+  const ropeAxis = { top: new THREE.Vector3(0.18, 2.4, -2.21), bottom: new THREE.Vector3(0.17, 0.9, -2.12) };
+  if (parts.bell_rope && J('bed_pillow')) {
+    julia.group.updateMatrixWorld(true);
+    const rope = parts.bell_rope, rb = new THREE.Box3().setFromObject(rope), top = rope.getWorldPosition(new THREE.Vector3());
+    const cx = (rb.min.x + rb.max.x) / 2, cz = (rb.min.z + rb.max.z) / 2;
+    const hit = new THREE.Raycaster(new THREE.Vector3(cx, 2.2, cz), new THREE.Vector3(0, -1, 0)).intersectObject(J('bed_pillow'), true)[0];
+    const restY = hit ? hit.point.y + 0.004 : rb.min.y;
+    if (rb.min.y < restY) rope.scale.y *= (top.y - restY) / (top.y - rb.min.y);
+    ropeAxis.top.copy(top); ropeAxis.bottom.set(cx, restY, cz);
+  }
+
   // small clues get a larger invisible hit area so the dot can't slip between grille bars
   proxy(parts.ventilator, new THREE.BoxGeometry(0.26, 0.2, 0.08), 0, 0, 0.02);
   proxy(parts.bell_rope, new THREE.CylinderGeometry(0.07, 0.07, 1.62, 8), 0, -0.8, 0);
@@ -360,7 +374,25 @@ Promise.all([parseGLB('glb-bedroom'), parseGLB('glb-candle'), parseGLB('glb-royl
     // distance from the tip of the snout back to each joint (snout at z 0.5, joints at 0.35, 0.18, 0.01, -0.16, -0.33)
     adder = { root, segs, joints: [0.15, 0.32, 0.49, 0.66, 0.83], tongue: root.getObjectByName('tongue'), headY: 2.42 };
     for (const sg of segs) if (sg) sg.userData.q0 = sg.quaternion.clone();
-    root.rotation.x = Math.PI / 2;   // head pointing down the rope
+    // The snake is drawn as one smooth body that slides along a curve (out of the ventilator, round the rope, round
+    // Roylott's head) instead of six stiff pieces bending at their joints. Bake the model, lying straight, into one
+    // shape with its snout toward +X; the original stays hidden and only its "visible" flag is used.
+    root.updateMatrixWorld(true);
+    const inv = root.matrixWorld.clone().invert(), geos = [], mats = [];
+    root.traverse(o => {
+      if (!o.isMesh) return;
+      let g = o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+      if (g.index) g = g.toNonIndexed();
+      for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
+      geos.push(g); mats.push(o.material); o.visible = false;
+    });
+    const body = mergeGeometries(geos, true); body.rotateY(Math.PI / 2);
+    const flow = new Flow(new THREE.Mesh(body, mats)); flow.uniforms.spineOffset.value = 0;
+    flow.object3D.traverse(o => { o.frustumCulled = false; o.castShadow = false; });
+    flow.object3D.visible = false; scene.add(flow.object3D);   // kept at the scene root: its curve is in world space
+    Object.assign(adder, { flow, mode: 'rope', curveMode: null, rope: null });
+    buildSnakePath(ropeAxis);
+    root.rotation.x = Math.PI / 2;
     julia.group.add(root);
   }
   // ---- Holmes's cane, held in view during the watch ----
@@ -704,23 +736,41 @@ function strike() {
     caption('early' + Math.floor(night.t), 'Not yet. Keep still, and wait.');
   }
 }
-function resetSnake() { adder.headY = 2.42; adder.root.visible = false; }
-function poseSnakeOnRope(t, x = 0.2) {
-  const a = adder;
-  // the model's origin is mid-body; its snout is 0.5 m ahead (below, once it points down), so lift it to put the snout at headY
-  a.root.position.set(x, a.headY + 0.5, x > 0.3 ? -2.17 : -2.11);
-  // bend the body back into the ventilator at the first joint above the grille; ripple the rest
-  let bent = false;
-  a.segs.forEach((sg, i) => {
-    if (!sg || i === 0) return;
-    const jointY = a.headY + a.joints[i - 1];
-    const q = sg.userData.q0.clone();
-    if (!bent && jointY > 2.36) { q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0))); bent = true; }
-    else if (!bent) q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.sin(t * 5 - i * 1.1) * 0.35, 0)));
-    sg.quaternion.copy(q);
-  });
-  if (a.tongue) a.tongue.scale.z = 0.6 + 0.6 * Math.max(0, Math.sin(t * 14));
+function resetSnake() { adder.headY = 2.42; adder.root.visible = false; adder.mode = 'rope'; }
+// The snake's road in Julia's room (her room sits at the world origin): from deep inside the wall, out through the
+// grille, across to the rope, then spiralling down around the rope to the pillow.
+function buildSnakePath(axis) {
+  const V = THREE.Vector3, gx = 0.45, gy = 2.40, gz = -2.24, P = [];
+  P.push(new V(gx, gy, -3.75), new V(gx, gy, -3.0), new V(gx, gy, -2.5), new V(gx, gy, gz),
+         new V(gx - 0.01, gy - 0.03, gz + 0.08), new V(gx - 0.09, gy - 0.12, gz + 0.12));
+  const r = 0.045, y0 = axis.top.y - 0.2, y1 = axis.bottom.y + 0.06;
+  for (let k = 0, y = y0; y >= y1; k++, y -= 0.055) {
+    const f = (axis.top.y - y) / (axis.top.y - axis.bottom.y), a = k * 0.7;
+    const cx = axis.top.x + (axis.bottom.x - axis.top.x) * f, cz = axis.top.z + (axis.bottom.z - axis.top.z) * f;
+    P.push(new V(cx + Math.cos(a) * r, y, cz + Math.sin(a) * r));
+  }
+  P.push(new V(axis.bottom.x + 0.03, axis.bottom.y + 0.03, axis.bottom.z + 0.13));   // the head comes to rest on the pillow
+  const curve = new THREE.CatmullRomCurve3(P, false, 'centripetal'), L = curve.getLength();
+  const N = 1600, ys = new Float32Array(N + 1); let uGrille = 0;
+  for (let i = 0; i <= N; i++) { const p = curve.getPointAt(i / N); ys[i] = p.y; if (!uGrille && p.z >= gz) uGrille = i; }
+  adder.rope = { curve, L, ys, N, iGrille: uGrille, sGrille: uGrille / N * L };
 }
+// how far along the road the snout is, for a given snout height (headY is what the night watch and prologue animate)
+function ropeS(headY) {
+  const R = adder.rope;
+  if (headY >= 2.40) return R.sGrille - (headY - 2.40) * 2.5;   // still inside the wall
+  for (let i = R.iGrille; i <= R.N; i++) if (R.ys[i] <= headY) return i / R.N * R.L;
+  return R.L;
+}
+function updateSnake() {
+  const a = adder; if (!a || !a.flow || !a.rope) return;
+  a.flow.object3D.visible = a.root.visible; if (!a.root.visible) return;
+  if (a.mode === 'ring') return;   // posed once in seatRoylott
+  if (a.curveMode !== 'rope') { a.flow.updateCurve(0, a.rope.curve); a.curveMode = 'rope'; }
+  const s = THREE.MathUtils.clamp(ropeS(a.headY), 1.0, a.rope.L);
+  a.flow.uniforms.pathOffset.value = (s - 0.5) / a.rope.L;   // snout at s, tail a metre behind it
+}
+function poseSnakeOnRope() { /* the snake now follows its path in updateSnake() */ }
 function tickNight(dt) {
   night.t += dt;
   const t = night.t;
@@ -808,26 +858,25 @@ function seatRoylott() {
   if (r.armL) r.armL.quaternion.copy(r.armL.userData.q0).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.4, 0, 0)));
   if (r.head) r.head.quaternion.copy(r.head.userData.q0).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.45, 0, 0)));   // staring at the ceiling
   for (const e of r.eyes) e.scale.copy(e.userData.s0);
-  // the snake, curled round his brow. Measure his head while it is upright, size the coil to fit snugly, and fix
-  // it to the head so it tilts back with him instead of hanging in the air beside it.
+  // the snake, coiled round his brow: measure his head while it is upright, lay a rising spiral just touching it,
+  // lift the snake's head off his forehead at the end, then tilt his head back with the coil on it
   const a = adder, head = r.head || r.root, V3 = THREE.Vector3;
   if (r.head) r.head.quaternion.copy(r.head.userData.q0);
-  a.root.visible = true; a.root.rotation.set(0, 0, 0); a.root.scale.setScalar(1);
-  // bend each joint about 62 degrees so the six segments close into a ring
-  a.segs.forEach((sg, i) => { if (sg && i > 0) sg.quaternion.copy(sg.userData.q0).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 1.08, 0))); });
-  if (a.tongue) a.tongue.scale.z = 0.4;
-  head.add(a.root); a.root.position.set(0, 0, 0); r.root.updateMatrixWorld(true);
+  r.root.updateMatrixWorld(true);
   const skin = r.root.getObjectByName('head_skin') || head;
   const hb = new THREE.Box3().setFromObject(skin), hs = hb.getSize(new V3()), hc = hb.getCenter(new V3());
-  const rs = new THREE.Box3().setFromObject(a.root).getSize(new V3());
-  // shrink the ring to fit his head, but keep the snake's full height so it reads as a band, not a wire
-  const fit = (hs.x * 0.9 + 0.05) / Math.max(rs.x, rs.z);
-  a.root.scale.set(fit, 1.5, fit);   // outer edge just wider than his temples
-  r.root.updateMatrixWorld(true);
-  const rc = new THREE.Box3().setFromObject(a.root).getCenter(new V3());
-  const brow = new V3(hc.x, hb.min.y + hs.y * 0.68, hc.z);             // forehead height, just above the eyes
-  a.root.position.add(head.worldToLocal(brow.clone()).sub(head.worldToLocal(rc)));
+  const c = head.worldToLocal(new V3(hc.x, hb.min.y + hs.y * 0.66, hc.z)), rad = hs.x * 0.47 + 0.012;
   if (r.head) r.head.quaternion.copy(r.head.userData.q0).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.45, 0, 0)));   // staring at the ceiling
+  r.root.updateMatrixWorld(true);
+  const turns = Math.max(1.25, 0.92 / (2 * Math.PI * rad)), N = Math.ceil(turns * 18), end = Math.PI / 2 + 0.5, pts = [];
+  for (let i = 0; i <= N; i++) {
+    const u = i / N, ang = end - (1 - u) * turns * 2 * Math.PI;
+    pts.push(head.localToWorld(new V3(c.x + Math.cos(ang) * rad, c.y - 0.025 + u * 0.05, c.z + Math.sin(ang) * rad)));
+  }
+  pts.push(head.localToWorld(new V3(c.x + Math.cos(end + 0.35) * (rad + 0.035), c.y + 0.07, c.z + Math.sin(end + 0.35) * (rad + 0.035))));
+  const ring = new THREE.CatmullRomCurve3(pts, false, 'centripetal'), L = ring.getLength();
+  a.mode = 'ring'; a.curveMode = 'ring'; a.root.visible = true;
+  a.flow.updateCurve(0, ring); a.flow.uniforms.pathOffset.value = (L - 0.5) / L;   // snout at the lifted end
 }
 function showTheEnd() {
   night.phase = 'end';
@@ -1345,6 +1394,7 @@ function tick() {
   else p.hidden = true;
 
   if (night.phase !== 'off') tickNight(dt);
+  updateSnake();
 
   // Dr. Roylott: once Helen has told her story (or you've found most of the evidence) he storms in
   if (roy && ready) {
