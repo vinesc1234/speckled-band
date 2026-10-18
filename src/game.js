@@ -206,6 +206,20 @@ const parts = {};
 const flames = [];
 let ready = false;
 
+// Some models arrive with every joint at the feet. Move each joint to where it bends (neck, shoulders, elbows, hips,
+// eye centres) so heads turn and limbs swing naturally. Models whose joints are already in place are left alone.
+function fixJoints(root, specs) {
+  root.updateMatrixWorld(true);
+  for (const [name, part, where] of specs) {
+    const n = root.getObjectByName(name), m = root.getObjectByName(part) || n;
+    if (!n || !m || n.position.lengthSq() > 1e-6) continue;
+    const bb = new THREE.Box3().setFromObject(m), c = bb.getCenter(new THREE.Vector3());
+    const wp = where === 'bottom' ? new THREE.Vector3(c.x, bb.min.y + 0.03, c.z - 0.01) : where === 'top' ? new THREE.Vector3(c.x, bb.max.y - 0.03, c.z) : c;
+    const parent = n.parent, pivot = new THREE.Group(); pivot.name = name; n.name = name + '_geo';
+    parent.add(pivot); pivot.position.copy(parent.worldToLocal(wp.clone())); pivot.updateMatrixWorld(true);
+    pivot.attach(n); root.updateMatrixWorld(true);
+  }
+}
 function addCandle(room, candleScene, x, y, z, ry, shadow) {
   const c = candleScene.clone(true);
   c.position.set(x, y, z); c.rotation.y = ry;
@@ -239,7 +253,7 @@ Promise.all([parseGLB('glb-bedroom'), parseGLB('glb-candle'), parseGLB('glb-royl
   // Julia's pillow came as a stretched sphere (it looked like an egg). Keep its size, place and
   // material, but give it a pillow's shape: rounded corners, thin edges, plump middle.
   const pillow = J('bed_pillow');
-  if (pillow && pillow.isMesh) {
+  if (pillow && pillow.isMesh && Math.abs(pillow.scale.x - pillow.scale.y) > 0.1) {
     const g = new RoundedBoxGeometry(2, 2, 2, 6, 0.55);
     const pos = g.attributes.position;
     for (let i = 0; i < pos.count; i++) {
@@ -309,6 +323,8 @@ Promise.all([parseGLB('glb-bedroom'), parseGLB('glb-candle'), parseGLB('glb-royl
 
   // ---- Helen Stoner waits by the fireplace in her sister's room ----
   const helen = hel.scene;
+  fixJoints(helen, [['head', 'head_skin', 'bottom'], ['arm_left', 'arm_left_sleeve', 'top'], ['arm_right', 'arm_right_sleeve', 'top'],
+    ['arm_left_forearm', 'arm_left_forearm_sleeve', 'top'], ['arm_right_forearm', 'arm_right_forearm_sleeve', 'top']]);
   helen.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   helen.position.set(-0.95, 0, 1.25); helen.rotation.y = 2.1;   // facing into the room, toward the door
   julia.group.add(helen);
@@ -350,6 +366,9 @@ Promise.all([parseGLB('glb-bedroom'), parseGLB('glb-candle'), parseGLB('glb-royl
 
   // ---- Dr. Grimesby Roylott: waits out of sight in the corridor until his moment ----
   const man = grim.scene;
+  fixJoints(man, [['head', 'neck', 'bottom'], ['eye_left', 'eye_left', 'center'], ['eye_right', 'eye_right', 'center'],
+    ['arm_left', 'sleeve_left', 'top'], ['arm_right', 'sleeve_upper_right', 'top'], ['elbow_right', 'sleeve_forearm_right', 'top'],
+    ['leg_left', 'thigh_left', 'top'], ['leg_right', 'thigh_right', 'top']]);
   man.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   man.position.set(1.15, 0, 2.75); man.rotation.y = Math.PI; man.visible = false;   // faces into the room
   julia.group.add(man);
