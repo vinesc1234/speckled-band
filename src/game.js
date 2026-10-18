@@ -820,7 +820,9 @@ function seatRoylott() {
   const skin = r.root.getObjectByName('head_skin') || head;
   const hb = new THREE.Box3().setFromObject(skin), hs = hb.getSize(new V3()), hc = hb.getCenter(new V3());
   const rs = new THREE.Box3().setFromObject(a.root).getSize(new V3());
-  a.root.scale.setScalar((hs.x * 0.9 + 0.05) / Math.max(rs.x, rs.z));   // outer edge just wider than his temples
+  // shrink the ring to fit his head, but keep the snake's full height so it reads as a band, not a wire
+  const fit = (hs.x * 0.9 + 0.05) / Math.max(rs.x, rs.z);
+  a.root.scale.set(fit, 1.5, fit);   // outer edge just wider than his temples
   r.root.updateMatrixWorld(true);
   const rc = new THREE.Box3().setFromObject(a.root).getCenter(new V3());
   const brow = new V3(hc.x, hb.min.y + hs.y * 0.68, hc.z);             // forehead height, just above the eyes
