@@ -274,7 +274,13 @@ Promise.all([parseGLB('glb-bedroom'), parseGLB('glb-candle'), parseGLB('glb-royl
   proxy(parts.bell_rope, new THREE.CylinderGeometry(0.07, 0.07, 1.62, 8), 0, -0.8, 0);
   proxy(parts.vent_back, new THREE.BoxGeometry(0.26, 0.2, 0.08), 0, 0, 0.02);
   proxy(R('saucer_of_milk'), new THREE.CylinderGeometry(0.13, 0.13, 0.08, 12), 0, 0.02, 0);
-  proxy(parts.dog_lash, new THREE.BoxGeometry(0.16, 0.4, 0.12), -1.31, 0.26, -0.23);
+  // the lash's hit area goes wherever the lash itself is, whichever model is loaded
+  if (parts.dog_lash) {
+    roylott.group.updateMatrixWorld(true);
+    const c = new THREE.Box3().setFromObject(parts.dog_lash).getCenter(new THREE.Vector3());
+    parts.dog_lash.worldToLocal(c);
+    proxy(parts.dog_lash, new THREE.BoxGeometry(0.16, 0.4, 0.12), c.x, c.y, c.z);
+  }
 
   // The ventilators in the models sit almost flush with the wall, dark on dark, and can't be seen.
   // Build a proper iron grille on each side: a black opening, a raised frame, and bars that catch the light.
@@ -307,7 +313,9 @@ Promise.all([parseGLB('glb-bedroom'), parseGLB('glb-candle'), parseGLB('glb-royl
   reg('safe', R('safe_body'), R('safe_door'));
   reg('saucer', R('saucer_of_milk'));
   reg('lash', R('dog_lash'));
-  reg('chair', R('wooden_chair'));
+  // the seat is the part you look at; some models keep it inside the chair, others beside it
+  const seat = R('chair_seat'), chairObj = R('wooden_chair');
+  reg('chair', chairObj, seat && !(chairObj && chairObj.getObjectById(seat.id)) ? seat : null);
   reg('vent_back', R('ventilator_back'), grilleR);
   reg('camp_bed', R('camp_bed'));
   reg('books', R('bookshelf'));
