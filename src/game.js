@@ -340,6 +340,9 @@ Promise.all([parseGLB('glb-bedroom'), parseGLB('glb-candle'), parseGLB('glb-royl
   }
   // Dr. Roylott's chair and his side of the ventilator stand where the hole now comes through
   for (const n of ['wooden_chair', 'chair_seat', 'ventilator_back']) { const o = R(n); if (o) o.position.x += (ROY_X - VENT.x) - 0.35; }
+  // the open window shutter swings to z 0.42; slide the bookcase along the wall clear of it
+  const SHELF_DZ = 1.05;
+  for (const n of ['bookshelf', 'books_red', 'books_green', 'book_gilt']) { const o = R(n); if (o && !(o.parent && o.parent.name === 'bookshelf')) o.position.z += SHELF_DZ; }
   const grilleJ = buildGrille(julia, parts.ventilator), grilleR = buildGrille(roylott, parts.vent_back);
   // a little light from the far side of each grille, so the opening reads as a way through to the next room
   // (it lights only the far room's walls; a wall lit from behind stays dark on its own side)
@@ -366,7 +369,7 @@ Promise.all([parseGLB('glb-bedroom'), parseGLB('glb-candle'), parseGLB('glb-royl
   addCandle(julia, candle.scene, -1.72, 1.0, 0.55, 0.4, true);
   addCandle(julia, candle.scene, 1.72, 0.757, -0.9, 2.2, false);
   addCandle(roylott, candle.scene, -0.72, 0.72, 1.0, 1.0, true);
-  addCandle(roylott, candle.scene, 2.02, 0.9, 0.8, 2.6, false);
+  addCandle(roylott, candle.scene, 2.02, 0.9, 0.8 + SHELF_DZ, 2.6, false);
   // his room has no wallpaper to bounce light; a dim ceiling fill keeps the safe and chair readable
   const fillR = new THREE.PointLight('#c9b79a', 2.0, 9, 1.3); fillR.position.set(0.6, 2.4, -0.9); roylott.group.add(fillR); roylott.lights.push({ L: fillR, base: 2.0 });
   // and a soft fill in Julia's room, so the fireplace and door wall aren't lost in shadow
@@ -463,7 +466,7 @@ Promise.all([parseGLB('glb-bedroom'), parseGLB('glb-candle'), parseGLB('glb-royl
     { minX: -1.06, maxX: -0.44, minZ: 0.74, maxZ: 1.36 },     // round table
     { minX: -0.88, maxX: -0.42, minZ: -2.25, maxZ: -1.69 },   // wooden chair, under the ventilator
     { minX: 1.0, maxX: 1.7, minZ: -2.25, maxZ: -1.57 },       // safe
-    { minX: 1.9, maxX: 2.25, minZ: 0.03, maxZ: 1.07 });       // bookshelf
+    { minX: 1.9, maxX: 2.25, minZ: 0.03 + SHELF_DZ, maxZ: 1.07 + SHELF_DZ }); // bookshelf, clear of the shutter
 
   for (const ex of examinables) {
     ex.meshes = [];
