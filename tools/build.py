@@ -89,12 +89,12 @@ open(os.path.join(N, 'netlify.toml'), 'w').write('''# Netlify settings for The S
 [[headers]]
   for = "/models/*"
   [headers.values]
-    Cache-Control = "public, max-age=604800"
+    Cache-Control = "public, max-age=0, must-revalidate"
     Content-Type = "model/gltf-binary"
 ''')
 open(os.path.join(N, 'README.txt'), 'w').write('''The Speckled Band - a first-person Sherlock Holmes mystery for the browser.
 
-Deploy on Netlify: drag this whole "speckled-band" folder onto https://app.netlify.com/drop,
+Deploy on Netlify: unzip, then drag the unzipped folder onto https://app.netlify.com/drop,
 or onto your site's Deploys tab to update it.
 
 Run it locally (it must be served, opening index.html directly won't load the models):
@@ -102,7 +102,8 @@ Run it locally (it must be served, opening index.html directly won't load the mo
 
 Based on "The Adventure of the Speckled Band" by Arthur Conan Doyle (1892), public domain.
 ''')
-shutil.make_archive(os.path.join(DIST, 'speckled-band-netlify'), 'zip', os.path.join(DIST, 'netlify'), 'speckled-band')
+# files at the top of the zip (no wrapper folder), so index.html lands at the site root
+shutil.make_archive(os.path.join(DIST, 'speckled-band-netlify'), 'zip', os.path.join(DIST, 'netlify', 'speckled-band'))
 
 mb = lambda p: f'{os.path.getsize(p) / 1e6:.1f} MB'
 print('artifact page ', mb(os.path.join(DIST, 'artifact', 'speckled-band.html')))
