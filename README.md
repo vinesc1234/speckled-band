@@ -39,4 +39,8 @@ node tools/test/smoke.js http://localhost:8000/
 
 ## Deploy
 
-Drag `dist/netlify/speckled-band` onto the site's Deploys tab in Netlify.
+Netlify is linked to this repo: every push to `main` builds (`netlify.toml`) and goes live.
+
+## Starting a new game from this one
+
+See `docs/NEW-GAME-STARTER.md`.
